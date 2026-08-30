@@ -7,4 +7,620 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    ...
+    <style>
+        /* 隐藏滚动条但保留滚动功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        /* 页面切换动画 */
+        .page-enter {
+            animation: slideIn 0.3s forwards;
+        }
+        .page-leave {
+            animation: slideOut 0.3s forwards;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        @keyframes slideOut {
+            from { transform: translateY(0); }
+            to { transform: translateY(100%); }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+        }
+    </style>
+</head>
+<body class="h-screen w-full overflow-hidden text-gray-800">
+
+    <!-- 首页容器 -->
+    <div id="home-page" class="h-full w-full flex flex-col relative z-10">
+        <!-- 头部统计 -->
+        <div class="bg-indigo-600 text-white p-6 rounded-b-3xl shadow-lg shrink-0">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-xl font-bold">记账本</h1>
+                <div class="text-sm bg-indigo-500 bg-opacity-50 px-3 py-1 rounded-full" id="current-month-display">2023年10月</div>
+            </div>
+            <div class="mb-4">
+                <div class="text-indigo-200 text-sm mb-1">本月结余</div>
+                <div class="text-3xl font-bold" id="total-balance">¥0.00</div>
+            </div>
+            <div class="flex justify-between">
+                <div>
+                    <div class="text-indigo-200 text-xs mb-1">本月收入</div>
+                    <div class="text-lg font-semibold" id="total-income">¥0.00</div>
+                </div>
+                <div>
+                    <div class="text-indigo-200 text-xs mb-1">本月支出</div>
+                    <div class="text-lg font-semibold" id="total-expense">¥0.00</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 账单列表区 -->
+        <div class="flex-1 overflow-y-auto no-scrollbar p-4 pb-24" id="transaction-list">
+            <!-- 账单数据将通过JS动态插入这里 -->
+            <div class="text-center text-gray-400 mt-10" id="empty-state">
+                <i class="fas fa-receipt text-5xl mb-3 text-gray-300"></i>
+                <p>暂无账单，点击下方按钮记一笔吧</p>
+            </div>
+        </div>
+
+        <!-- 底部导航栏 -->
+        <div class="absolute bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around items-center pb-safe pt-2 px-2 h-16 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+            <button class="flex flex-col items-center justify-center w-1/3 text-indigo-600 transition-colors" onclick="switchTab('home')">
+                <i class="fas fa-list text-xl mb-1"></i>
+                <span class="text-xs">明细</span>
+            </button>
+            <div class="w-1/3 flex justify-center relative">
+                <!-- 悬浮的记账按钮 -->
+                <button onclick="openAddModal()" class="absolute -top-8 bg-indigo-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-indigo-300 hover:bg-indigo-700 active:scale-95 transition-transform">
+                    <i class="fas fa-plus text-2xl"></i>
+                </button>
+            </div>
+            <button class="flex flex-col items-center justify-center w-1/3 text-gray-400 transition-colors" onclick="switchTab('stats')">
+                <i class="fas fa-chart-pie text-xl mb-1"></i>
+                <span class="text-xs">统计</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 统计页面容器 (默认隐藏) -->
+    <div id="stats-page" class="h-full w-full flex flex-col relative z-10 hidden bg-gray-50">
+        <div class="bg-white p-4 text-center font-bold text-lg border-b shrink-0">
+            账单统计
+        </div>
+        
+        <div class="flex-1 overflow-y-auto no-scrollbar p-4 pb-24">
+            <!-- 类型切换 (收入/支出) -->
+            <div class="flex bg-gray-100 rounded-lg p-1 mb-6">
+                <button id="stat-tab-expense" class="flex-1 py-2 text-sm font-medium bg-white shadow rounded-md text-gray-800" onclick="switchStatType('expense')">支出统计</button>
+                <button id="stat-tab-income" class="flex-1 py-2 text-sm font-medium text-gray-500 rounded-md" onclick="switchStatType('income')">收入统计</button>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl shadow-sm mb-6">
+                <h3 class="text-gray-500 text-sm mb-2" id="stat-total-label">总支出</h3>
+                <div class="text-2xl font-bold mb-4" id="stat-total-amount">¥0.00</div>
+                <!-- 图表容器 -->
+                <div class="relative h-64 w-full flex justify-center items-center">
+                    <canvas id="myChart"></canvas>
+                    <div id="chart-empty" class="absolute text-gray-400 text-sm hidden">暂无数据</div>
+                </div>
+            </div>
+
+            <!-- 分类排行列表 -->
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div class="p-4 border-b border-gray-100 font-medium text-gray-700">分类排行</div>
+                <div id="stat-list" class="flex flex-col">
+                    <!-- 排行数据将动态插入 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部导航栏 (复用结构) -->
+        <div class="absolute bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around items-center pb-safe pt-2 px-2 h-16 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+            <button class="flex flex-col items-center justify-center w-1/3 text-gray-400 transition-colors" onclick="switchTab('home')">
+                <i class="fas fa-list text-xl mb-1"></i>
+                <span class="text-xs">明细</span>
+            </button>
+            <div class="w-1/3 flex justify-center relative">
+                <button onclick="openAddModal()" class="absolute -top-8 bg-indigo-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-indigo-300 hover:bg-indigo-700 active:scale-95 transition-transform">
+                    <i class="fas fa-plus text-2xl"></i>
+                </button>
+            </div>
+            <button class="flex flex-col items-center justify-center w-1/3 text-indigo-600 transition-colors" onclick="switchTab('stats')">
+                <i class="fas fa-chart-pie text-xl mb-1"></i>
+                <span class="text-xs">统计</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 记账弹窗 (默认隐藏，覆盖全屏) -->
+    <div id="add-modal" class="fixed inset-0 bg-white z-50 transform translate-y-full transition-transform duration-300 flex flex-col hidden">
+        <!-- 头部 -->
+        <div class="flex justify-between items-center p-4 border-b border-gray-100 shrink-0">
+            <button onclick="closeAddModal()" class="text-gray-500 p-2"><i class="fas fa-times text-xl"></i></button>
+            <div class="flex bg-gray-100 rounded-full p-1 w-48">
+                <button id="add-tab-expense" class="flex-1 py-1.5 text-sm font-medium bg-white shadow rounded-full text-gray-800" onclick="switchAddType('expense')">支出</button>
+                <button id="add-tab-income" class="flex-1 py-1.5 text-sm font-medium text-gray-500 rounded-full" onclick="switchAddType('income')">收入</button>
+            </div>
+            <div class="w-10"></div> <!-- 占位保持居中 -->
+        </div>
+
+        <!-- 内容区 -->
+        <div class="flex-1 overflow-y-auto p-4 flex flex-col">
+            
+            <!-- 金额输入 -->
+            <div class="mb-6 bg-gray-50 p-4 rounded-2xl flex items-center">
+                <span class="text-2xl font-bold mr-2 text-gray-700">¥</span>
+                <input type="number" id="amount-input" placeholder="0.00" step="0.01" class="bg-transparent text-4xl font-bold outline-none w-full text-gray-800 placeholder-gray-300" />
+            </div>
+
+            <!-- 分类选择 (网格) -->
+            <div class="mb-6">
+                <h3 class="text-sm text-gray-500 mb-3 font-medium">选择分类</h3>
+                <div id="category-grid" class="grid grid-cols-4 gap-y-4 gap-x-2">
+                    <!-- 分类图标将通过JS动态渲染 -->
+                </div>
+            </div>
+
+            <!-- 表单详情 -->
+            <div class="space-y-4 mt-auto">
+                <div class="flex items-center bg-gray-50 p-3 rounded-xl">
+                    <i class="far fa-calendar-alt text-gray-400 w-8 text-center"></i>
+                    <input type="date" id="date-input" class="bg-transparent outline-none flex-1 text-gray-700" />
+                </div>
+                <div class="flex items-center bg-gray-50 p-3 rounded-xl">
+                    <i class="far fa-edit text-gray-400 w-8 text-center"></i>
+                    <input type="text" id="note-input" placeholder="添加备注..." class="bg-transparent outline-none flex-1 text-gray-700" />
+                </div>
+            </div>
+
+            <!-- 保存按钮 -->
+            <button onclick="saveTransaction()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl mt-6 shadow-md shadow-indigo-200 active:scale-95 transition-transform">
+                保存
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 核心状态 ---
+        let transactions = [];
+        let currentMonth = new Date().getMonth();
+        let currentYear = new Date().getFullYear();
+        let currentAddType = 'expense'; // 'expense' 或 'income'
+        let currentStatType = 'expense';
+        let selectedCategory = null;
+        let chartInstance = null;
+
+        // --- 分类配置 ---
+        const categories = {
+            expense: [
+                { id: 'e1', name: '餐饮', icon: 'fa-utensils', color: 'bg-orange-100 text-orange-500' },
+                { id: 'e2', name: '交通', icon: 'fa-bus', color: 'bg-blue-100 text-blue-500' },
+                { id: 'e3', name: '购物', icon: 'fa-shopping-bag', color: 'bg-pink-100 text-pink-500' },
+                { id: 'e4', name: '日用', icon: 'fa-box', color: 'bg-teal-100 text-teal-500' },
+                { id: 'e5', name: '娱乐', icon: 'fa-gamepad', color: 'bg-purple-100 text-purple-500' },
+                { id: 'e6', name: '住房', icon: 'fa-home', color: 'bg-yellow-100 text-yellow-600' },
+                { id: 'e7', name: '医疗', icon: 'fa-pills', color: 'bg-red-100 text-red-500' },
+                { id: 'e8', name: '其他', icon: 'fa-ellipsis-h', color: 'bg-gray-200 text-gray-600' }
+            ],
+            income: [
+                { id: 'i1', name: '工资', icon: 'fa-wallet', color: 'bg-green-100 text-green-600' },
+                { id: 'i2', name: '兼职', icon: 'fa-laptop-code', color: 'bg-blue-100 text-blue-500' },
+                { id: 'i3', name: '理财', icon: 'fa-chart-line', color: 'bg-red-100 text-red-500' },
+                { id: 'i4', name: '红包', icon: 'fa-envelope-open-text', color: 'bg-yellow-100 text-yellow-600' },
+                { id: 'i5', name: '其他', icon: 'fa-ellipsis-h', color: 'bg-gray-200 text-gray-600' }
+            ]
+        };
+
+        // 获取分类对象的辅助函数
+        function getCategoryById(type, id) {
+            return categories[type].find(c => c.id === id);
+        }
+
+        // --- 初始化 ---
+        window.onload = function() {
+            // 设置默认日期为今天
+            document.getElementById('date-input').valueAsDate = new Date();
+            // 显示当前月份
+            document.getElementById('current-month-display').innerText = `${currentYear}年${currentMonth + 1}月`;
+            
+            // 添加一些测试数据以便预览
+            addTestData();
+            
+            // 渲染视图
+            renderHome();
+        };
+
+        function addTestData() {
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            const formatDate = (date) => date.toISOString().split('T')[0];
+
+            transactions = [
+                { id: 1, type: 'expense', amount: 35.5, categoryId: 'e1', date: formatDate(today), note: '午餐牛肉面', timestamp: Date.now() },
+                { id: 2, type: 'expense', amount: 12.0, categoryId: 'e2', date: formatDate(today), note: '打车', timestamp: Date.now() - 1000 },
+                { id: 3, type: 'income', amount: 8000.0, categoryId: 'i1', date: formatDate(yesterday), note: '十月工资', timestamp: Date.now() - 86400000 },
+                { id: 4, type: 'expense', amount: 120.0, categoryId: 'e3', date: formatDate(yesterday), note: '买衣服', timestamp: Date.now() - 86400000 + 1000 }
+            ];
+        }
+
+        // --- 导航与页面切换逻辑 ---
+        function switchTab(tab) {
+            const homePage = document.getElementById('home-page');
+            const statsPage = document.getElementById('stats-page');
+            const navButtons = document.querySelectorAll('.bottom-0 button:not(.rounded-full)'); 
+
+            if (tab === 'home') {
+                homePage.classList.remove('hidden');
+                statsPage.classList.add('hidden');
+                
+                navButtons[0].classList.replace('text-gray-400', 'text-indigo-600');
+                navButtons[1].classList.replace('text-indigo-600', 'text-gray-400');
+                
+                renderHome();
+            } else if (tab === 'stats') {
+                homePage.classList.add('hidden');
+                statsPage.classList.remove('hidden');
+                
+                const activeNavs = statsPage.querySelectorAll('.bottom-0 button:not(.rounded-full)');
+                if(activeNavs.length > 0) {
+                    activeNavs[0].classList.replace('text-indigo-600', 'text-gray-400');
+                    activeNavs[1].classList.replace('text-gray-400', 'text-indigo-600');
+                }
+                
+                renderStats();
+            }
+        }
+
+        // --- 首页渲染逻辑 ---
+        function renderHome() {
+            const monthTransactions = transactions.filter(t => {
+                const d = new Date(t.date);
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            });
+
+            let income = 0;
+            let expense = 0;
+            monthTransactions.forEach(t => {
+                if (t.type === 'income') income += parseFloat(t.amount);
+                else expense += parseFloat(t.amount);
+            });
+            const balance = income - expense;
+
+            document.getElementById('total-income').innerText = `¥${income.toFixed(2)}`;
+            document.getElementById('total-expense').innerText = `¥${expense.toFixed(2)}`;
+            document.getElementById('total-balance').innerText = `¥${balance.toFixed(2)}`;
+
+            const listContainer = document.getElementById('transaction-list');
+            const emptyState = document.getElementById('empty-state');
+            
+            if (monthTransactions.length === 0) {
+                emptyState.style.display = 'block';
+                Array.from(listContainer.children).forEach(child => {
+                    if (child.id !== 'empty-state') child.remove();
+                });
+                return;
+            } else {
+                emptyState.style.display = 'none';
+            }
+
+            monthTransactions.sort((a, b) => new Date(b.date) - new Date(a.date) || b.timestamp - a.timestamp);
+            
+            const grouped = {};
+            monthTransactions.forEach(t => {
+                if (!grouped[t.date]) grouped[t.date] = [];
+                grouped[t.date].push(t);
+            });
+
+            let html = '';
+            for (const dateStr in grouped) {
+                const todayStr = new Date().toISOString().split('T')[0];
+                let dateDisplay = dateStr;
+                if (dateStr === todayStr) dateDisplay = '今天';
+                else if (dateStr === new Date(Date.now() - 86400000).toISOString().split('T')[0]) dateDisplay = '昨天';
+
+                let dayIn = 0, dayOut = 0;
+                grouped[dateStr].forEach(t => {
+                    if (t.type === 'income') dayIn += t.amount;
+                    else dayOut += t.amount;
+                });
+
+                html += `
+                    <div class="mb-4">
+                        <div class="flex justify-between items-center text-xs text-gray-500 mb-2 px-1">
+                            <span>${dateDisplay}</span>
+                            <span>
+                                ${dayIn > 0 ? `入 ¥${dayIn.toFixed(2)} ` : ''}
+                                ${dayOut > 0 ? `出 ¥${dayOut.toFixed(2)}` : ''}
+                            </span>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                `;
+
+                grouped[dateStr].forEach((t, index) => {
+                    const category = getCategoryById(t.type, t.categoryId);
+                    const isLast = index === grouped[dateStr].length - 1;
+                    const amountColor = t.type === 'income' ? 'text-green-500' : 'text-gray-800';
+                    const amountPrefix = t.type === 'income' ? '+' : '-';
+
+                    html += `
+                            <div class="flex items-center p-3 ${!isLast ? 'border-b border-gray-100' : ''}">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center mr-3 ${category.color}">
+                                    <i class="fas ${category.icon}"></i>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-medium text-gray-800 text-sm truncate">${category.name}</div>
+                                    ${t.note ? `<div class="text-xs text-gray-400 truncate">${t.note}</div>` : ''}
+                                </div>
+                                <div class="font-bold ${amountColor}">
+                                    ${amountPrefix}${parseFloat(t.amount).toFixed(2)}
+                                </div>
+                            </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            Array.from(listContainer.children).forEach(child => {
+                if (child.id !== 'empty-state') child.remove();
+            });
+            listContainer.insertAdjacentHTML('beforeend', html);
+        }
+
+        // --- 记账弹窗逻辑 ---
+        function openAddModal() {
+            const modal = document.getElementById('add-modal');
+            modal.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                modal.classList.remove('translate-y-full');
+            });
+            
+            document.getElementById('amount-input').value = '';
+            document.getElementById('note-input').value = '';
+            
+            switchAddType('expense');
+        }
+
+        function closeAddModal() {
+            const modal = document.getElementById('add-modal');
+            modal.classList.add('translate-y-full');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        function switchAddType(type) {
+            currentAddType = type;
+            const expBtn = document.getElementById('add-tab-expense');
+            const incBtn = document.getElementById('add-tab-income');
+
+            if (type === 'expense') {
+                expBtn.className = 'flex-1 py-1.5 text-sm font-medium bg-white shadow rounded-full text-gray-800 transition-all';
+                incBtn.className = 'flex-1 py-1.5 text-sm font-medium text-gray-500 rounded-full transition-all';
+            } else {
+                incBtn.className = 'flex-1 py-1.5 text-sm font-medium bg-white shadow rounded-full text-gray-800 transition-all';
+                expBtn.className = 'flex-1 py-1.5 text-sm font-medium text-gray-500 rounded-full transition-all';
+            }
+
+            renderCategories();
+        }
+
+        function renderCategories() {
+            const grid = document.getElementById('category-grid');
+            grid.innerHTML = '';
+            const cats = categories[currentAddType];
+            
+            selectedCategory = cats[0].id;
+
+            cats.forEach(cat => {
+                const isSelected = selectedCategory === cat.id;
+                const iconBgClass = isSelected ? cat.color : 'bg-gray-100 text-gray-500';
+                
+                const html = `
+                    <div class="flex flex-col items-center cursor-pointer" onclick="selectCategory('${cat.id}')">
+                        <div id="cat-icon-${cat.id}" class="w-12 h-12 rounded-full flex items-center justify-center mb-1 transition-colors ${iconBgClass}">
+                            <i class="fas ${cat.icon} text-lg"></i>
+                        </div>
+                        <span class="text-xs text-gray-600">${cat.name}</span>
+                    </div>
+                `;
+                grid.insertAdjacentHTML('beforeend', html);
+            });
+        }
+
+        function selectCategory(id) {
+            selectedCategory = id;
+            renderCategories(); 
+        }
+
+        function saveTransaction() {
+            const amountInput = document.getElementById('amount-input').value;
+            const noteInput = document.getElementById('note-input').value;
+            const dateInput = document.getElementById('date-input').value;
+
+            if (!amountInput || parseFloat(amountInput) <= 0) {
+                const inputEl = document.getElementById('amount-input');
+                inputEl.classList.add('text-red-500');
+                setTimeout(() => inputEl.classList.remove('text-red-500'), 1000);
+                return;
+            }
+            if (!dateInput) return;
+
+            const newTx = {
+                id: Date.now(),
+                type: currentAddType,
+                amount: parseFloat(amountInput),
+                categoryId: selectedCategory,
+                date: dateInput,
+                note: noteInput,
+                timestamp: Date.now()
+            };
+
+            transactions.push(newTx);
+            
+            closeAddModal();
+            renderHome();
+            switchTab('home');
+        }
+
+        // --- 统计页逻辑 ---
+        function switchStatType(type) {
+            currentStatType = type;
+            const expBtn = document.getElementById('stat-tab-expense');
+            const incBtn = document.getElementById('stat-tab-income');
+
+            if (type === 'expense') {
+                expBtn.className = 'flex-1 py-2 text-sm font-medium bg-white shadow rounded-md text-gray-800 transition-all';
+                incBtn.className = 'flex-1 py-2 text-sm font-medium text-gray-500 rounded-md transition-all bg-transparent';
+                document.getElementById('stat-total-label').innerText = '总支出';
+            } else {
+                incBtn.className = 'flex-1 py-2 text-sm font-medium bg-white shadow rounded-md text-gray-800 transition-all';
+                expBtn.className = 'flex-1 py-2 text-sm font-medium text-gray-500 rounded-md transition-all bg-transparent';
+                document.getElementById('stat-total-label').innerText = '总收入';
+            }
+
+            renderStats();
+        }
+
+        function renderStats() {
+            const monthTx = transactions.filter(t => {
+                const d = new Date(t.date);
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear && t.type === currentStatType;
+            });
+
+            let total = 0;
+            const catTotals = {};
+
+            monthTx.forEach(t => {
+                total += t.amount;
+                if (!catTotals[t.categoryId]) catTotals[t.categoryId] = 0;
+                catTotals[t.categoryId] += t.amount;
+            });
+
+            document.getElementById('stat-total-amount').innerText = `¥${total.toFixed(2)}`;
+
+            const chartData = [];
+            const chartLabels = [];
+            const chartColors = [];
+            
+            const sortedCats = Object.keys(catTotals).map(id => {
+                return {
+                    id: id,
+                    amount: catTotals[id],
+                    percent: total > 0 ? ((catTotals[id] / total) * 100).toFixed(1) : 0
+                };
+            }).sort((a, b) => b.amount - a.amount);
+
+            const listContainer = document.getElementById('stat-list');
+            listContainer.innerHTML = '';
+            
+            const emptyText = document.getElementById('chart-empty');
+
+            if (sortedCats.length === 0) {
+                emptyText.classList.remove('hidden');
+                if (chartInstance) chartInstance.destroy(); 
+                return;
+            } else {
+                emptyText.classList.add('hidden');
+            }
+
+            sortedCats.forEach((item, index) => {
+                const catInfo = getCategoryById(currentStatType, item.id);
+                
+                chartLabels.push(catInfo.name);
+                chartData.push(item.amount);
+                
+                const colorMap = {
+                    'orange': '#f97316', 'blue': '#3b82f6', 'pink': '#ec4899',
+                    'teal': '#14b8a6', 'purple': '#a855f7', 'yellow': '#eab308',
+                    'red': '#ef4444', 'green': '#22c55e', 'gray': '#6b7280'
+                };
+                let hexColor = '#9ca3af';
+                for (let key in colorMap) {
+                    if (catInfo.color.includes(key)) {
+                        hexColor = colorMap[key];
+                        break;
+                    }
+                }
+                chartColors.push(hexColor);
+
+                const isLast = index === sortedCats.length - 1;
+                const html = `
+                    <div class="flex items-center p-4 ${!isLast ? 'border-b border-gray-50' : ''}">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 ${catInfo.color} text-sm">
+                            <i class="fas ${catInfo.icon}"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm font-medium text-gray-800">${catInfo.name}</span>
+                                <span class="text-sm font-bold text-gray-800">¥${item.amount.toFixed(2)}</span>
+                            </div>
+                            <div class="w-full bg-gray-100 rounded-full h-1.5">
+                                <div class="bg-indigo-500 h-1.5 rounded-full" style="width: ${item.percent}%"></div>
+                            </div>
+                        </div>
+                        <div class="w-12 text-right text-xs text-gray-400 ml-2">${item.percent}%</div>
+                    </div>
+                `;
+                listContainer.insertAdjacentHTML('beforeend', html);
+            });
+
+            const ctx = document.getElementById('myChart').getContext('2d');
+            
+            if (chartInstance) {
+                chartInstance.destroy(); 
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        data: chartData,
+                        backgroundColor: chartColors,
+                        borderWidth: 2,
+                        borderColor: '#ffffff',
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                usePointStyle: true,
+                                boxWidth: 8,
+                                font: { size: 12 }
+                            }
+                        }
+                    },
+                    animation: {
+                        animateScale: true,
+                        animateRotate: true
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
